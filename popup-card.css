@@ -1,0 +1,22 @@
+:host { all: initial; }
+.card {
+  width: 340px; max-height: 420px; overflow-y: auto; box-sizing: border-box;
+  background: #fff; color: #222; border: 1px solid #d0d7de; border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 12px 14px;
+  font: 14px/1.45 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; text-align: left;
+}
+.head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.word { font-size: 18px; font-weight: 700; color: #0b57d0; }
+.phon { color: #666; font-style: italic; }
+button { border: 0; background: none; cursor: pointer; font-size: 16px; padding: 0 4px; }
+.close { margin-left: auto; font-size: 20px; color: #888; }
+.main { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+.pos { margin-top: 8px; font-weight: 600; color: #b3261e; }
+.pos-en { font-weight: 400; color: #999; font-size: 12px; }
+ul { margin: 2px 0 0; padding-left: 20px; }
+li { margin: 1px 0; }
+.section { margin-top: 10px; padding-top: 6px; border-top: 1px solid #eee; font-size: 12px; color: #888; text-transform: uppercase; }
+.ex { font-size: 13px; margin-top: 4px; }
+.ex-sample { color: #666; font-style: italic; }
+.loading, .err { color: #666; }
+.err { color: #b3261e; }
