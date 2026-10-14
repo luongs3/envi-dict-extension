@@ -3,12 +3,33 @@ const POS_VI = {
   noun: 'danh từ', verb: 'động từ', adjective: 'tính từ', adverb: 'trạng từ',
   pronoun: 'đại từ', preposition: 'giới từ', conjunction: 'liên từ',
   interjection: 'thán từ', article: 'mạo từ', abbreviation: 'viết tắt',
-  prefix: 'tiền tố', suffix: 'hậu tố', exclamation: 'thán từ'
+  prefix: 'tiền tố', suffix: 'hậu tố', exclamation: 'thán từ', determiner: 'hạn định từ'
 };
 
-async function fetchJson(url, ms = 4000) {
-  // Each source gets a hard timeout: dictionaryapi.dev intermittently hangs ~20s (HTTP 522)
-  // and must never block the Vietnamese result from Google.
+// "past and past participle of pay1." → inflection label + base word
+const FORM_VI = [
+  [/^past and past participle of/, 'quá khứ & quá khứ phân từ của'],
+  [/^past participle of/, 'quá khứ phân từ của'],
+  [/^past(?: tense)? of/, 'quá khứ của'],
+  [/^plural (?:form )?of/, 'số nhiều của'],
+  [/^comparative (?:form )?of/, 'so sánh hơn của'],
+  [/^superlative (?:form )?of/, 'so sánh nhất của'],
+  [/^third person singular present of/, 'ngôi 3 số ít của'],
+  [/^present participle of/, 'hiện tại phân từ của']
+];
+
+let IPA = null; // CMU Pronouncing Dictionary → IPA, bundled (ipa.json)
+
+async function loadIpa() {
+  if (IPA) return IPA;
+  try {
+    const url = typeof chrome !== 'undefined' && chrome.runtime ? chrome.runtime.getURL('ipa.json') : null;
+    IPA = url ? await (await fetch(url)).json() : require('./ipa.json');
+  } catch { IPA = {}; }
+  return IPA;
+}
+
+async function fetchJson(url, ms = 5000) {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), ms);
   try {
@@ -17,49 +38,91 @@ async function fetchJson(url, ms = 4000) {
   } catch { return null; } finally { clearTimeout(t); }
 }
 
-async function lookup(word) {
-  word = word.trim().toLowerCase();
-  const gUrl = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=vi'
-    + '&dt=t&dt=bd&dt=rm&dj=1&q=' + encodeURIComponent(word);
-  const dUrl = 'https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(word);
-  const [g, d] = await Promise.all([fetchJson(gUrl), fetchJson(dUrl)]);
-  if (!g && !d) throw new Error('Không kết nối được dịch vụ tra từ');
+// Two client IDs for the same endpoint: if one is rate-limited (HTTP 429), try the other.
+async function google(word) {
+  const qs = 'sl=en&tl=vi&hl=en&dt=t&dt=bd&dt=md&dt=rm&dj=1&q=' + encodeURIComponent(word);
+  return await fetchJson('https://translate.googleapis.com/translate_a/single?client=gtx&' + qs)
+    || await fetchJson('https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&' + qs);
+}
 
-  const result = { word, phonetic: '', audio: '', translation: '', meanings: [], examples: [] };
+const N = s => (s || '').normalize('NFC').trim().toLowerCase();
 
-  if (g) {
-    const N = s => (s || '').normalize('NFC').trim().toLowerCase();
-    result.translation = (g.sentences || []).map(s => s.trans).filter(Boolean).join('').normalize('NFC');
-    const translit = (g.sentences || []).find(s => s.src_translit);
-    if (translit) result.phonetic = '/' + translit.src_translit + '/';
-    for (const b of g.dict || []) {
-      const all = (b.entry || []).map(e => e.word.normalize('NFC'));
-      // Google's entry order isn't by relevance; put the main translation first
-      const main = all.find(w => N(w) === N(result.translation));
-      const terms = (main ? [main, ...all.filter(w => w !== main)] : all).slice(0, 8);
-      result.meanings.push({ pos: b.pos, posVi: POS_VI[b.pos] || b.pos, terms });
+// Vietnamese meanings grouped by POS, main translation first.
+function parseMeanings(g, translation) {
+  return (g.dict || []).map(b => {
+    const all = (b.entry || []).map(e => e.word.normalize('NFC'));
+    // Google lists senses alphabetically with no score. Rank by syllables shared with the
+    // main translation (pay → "chi trả": trả, trả tiền, trả nợ… before "đóng tiền phạt").
+    const main = all.find(w => N(w) === N(translation));
+    const mainSyl = new Set(N(translation).split(/\s+/));
+    const overlap = w => N(w).split(/\s+/).filter(x => mainSyl.has(x)).length;
+    const ranked = all.map((w, i) => ({ w, i, s: overlap(w) }))
+      .sort((a, b) => b.s - a.s || a.i - b.i).map(x => x.w);
+    const order = main ? [main, ...ranked.filter(w => w !== main)] : ranked;
+    return { pos: b.pos, posVi: POS_VI[b.pos] || b.pos, terms: order.slice(0, 8) };
+  });
+}
+
+function parseDefinitions(g) {
+  return (g.definitions || []).map(d => ({
+    pos: d.pos,
+    defs: (d.entry || []).slice(0, 2).map(e => ({ def: e.gloss, example: e.example || '' }))
+  }));
+}
+
+// Detect an inflected form (paid → pay, went → go, children → child).
+function findBase(word, g) {
+  for (const d of [...(g.definitions || []), ...(g.dict || [])]) {
+    if (d.base_form && N(d.base_form) !== word) {
+      return { base: N(d.base_form), formVi: 'dạng biến thể của', pos: d.pos };
     }
   }
+  for (const d of g.definitions || []) {
+    const gloss = ((d.entry || [])[0] || {}).gloss || '';
+    for (const [re, vi] of FORM_VI) {
+      const m = gloss.match(new RegExp(re.source + /\s+([a-z]+)\d*/.source, 'i'));
+      if (m) return { base: m[1].toLowerCase(), formVi: vi, pos: d.pos };
+    }
+  }
+  return null;
+}
 
-  if (Array.isArray(d) && d[0]) {
-    const e = d[0];
-    const ph = (e.phonetics || []);
-    const withText = ph.find(p => p.text) || {};
-    result.phonetic = e.phonetic || withText.text || result.phonetic;
-    const us = ph.find(p => p.audio && /-us\.mp3$/.test(p.audio));
-    result.audio = (us || ph.find(p => p.audio) || {}).audio || '';
-    // English definitions as context, grouped by POS
-    for (const m of e.meanings || []) {
-      const def = (m.definitions || [])[0];
-      if (!def) continue;
-      result.examples.push({ pos: m.partOfSpeech, def: def.definition, example: def.example || '' });
-      // Add POS from dictionaryapi when Google has none (e.g. inflected forms)
-      if (!result.meanings.some(x => x.pos === m.partOfSpeech) && !g?.dict) {
-        result.meanings.push({ pos: m.partOfSpeech, posVi: POS_VI[m.partOfSpeech] || m.partOfSpeech, terms: [] });
-      }
+async function lookup(word) {
+  word = word.trim().toLowerCase();
+  const [g, ipa] = await Promise.all([google(word), loadIpa()]);
+  if (!g) throw new Error('Không kết nối được dịch vụ tra từ');
+
+  const translation = (g.sentences || []).map(s => s.trans).filter(Boolean).join('').normalize('NFC');
+  const translit = (g.sentences || []).find(s => s.src_translit);
+  const result = {
+    word,
+    phonetic: ipa[word] ? `/${ipa[word]}/` : (translit ? `/${translit.src_translit}/` : ''),
+    translation,
+    meanings: parseMeanings(g, translation),
+    definitions: parseDefinitions(g),
+    base: null
+  };
+
+  // Inflected word: also show the base word's full entry (Google gives inflections very few meanings).
+  const base = findBase(word, g);
+  if (base && base.base !== word) {
+    const bg = await google(base.base);
+    if (bg) {
+      const bt = (bg.sentences || []).map(s => s.trans).join('').normalize('NFC');
+      // Google often already returns the base word's meanings for the inflection (went → go);
+      // only repeat the base block when it adds something.
+      const dictIsBase = (g.dict || []).length && (g.dict || []).every(b => N(b.base_form) === base.base);
+      // paid = past of the VERB pay → show pay's verb meanings before its noun meanings
+      const byPos = list => list.slice().sort((a, b) => (b.pos === base.pos) - (a.pos === base.pos));
+      result.base = {
+        word: base.base, formVi: base.formVi, translation: bt,
+        phonetic: ipa[base.base] ? `/${ipa[base.base]}/` : '',
+        meanings: dictIsBase ? [] : byPos(parseMeanings(bg, bt)),
+        definitions: dictIsBase ? [] : byPos(parseDefinitions(bg))
+      };
     }
   }
   return result;
 }
 
-if (typeof module !== 'undefined') module.exports = { lookup };
+if (typeof module !== 'undefined') module.exports = { lookup, findBase };

@@ -4,10 +4,11 @@ Chrome extension (Manifest V3) for English → Vietnamese lookup, inspired by La
 
 **Hold Alt (Option on macOS) and double-click any English word** on a page → a popup shows:
 
-- IPA pronunciation + 🔊 audio
+- IPA pronunciation + 🔊 US / 🔊 UK audio buttons
 - Main Vietnamese translation
 - Vietnamese meanings grouped by part of speech (danh từ, động từ, tính từ…)
-- Short English definitions with examples
+- For inflected words, the base form and its meanings (paid → *quá khứ của* **pay**, went → **go**, children → **child**)
+- English definitions with examples
 
 Trigger modes (toolbar popup): **Alt + double-click** (default), plain double-click, or any selection. The toolbar popup also has a search box.
 
@@ -20,8 +21,8 @@ Trigger modes (toolbar popup): **Alt + double-click** (default), plain double-cl
 
 No API keys required.
 
-- Vietnamese meanings: Google Translate public endpoint (`translate.googleapis.com`, unofficial — may be rate-limited)
-- IPA / audio / English definitions: [Free Dictionary API](https://dictionaryapi.dev/) (4s timeout; popup still shows Vietnamese if it's down)
+- Vietnamese meanings, English definitions, pronunciation audio: Google Translate public endpoints (`translate.googleapis.com`, unofficial — may be rate-limited)
+- IPA: bundled `ipa.json`, generated from the [CMU Pronouncing Dictionary](https://github.com/cmusphinx/cmudict) (BSD license) by `tools/build_ipa.py`. US pronunciation; works offline.
 
 ## Tests
 

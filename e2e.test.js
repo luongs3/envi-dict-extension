@@ -135,6 +135,29 @@ const check = (name, ok, extra = '') => { ok ? pass++ : fail++; console.log(`${o
   check('mode persists after reopening toolbar popup', await ui.isChecked('input[value="dblclick"]'));
   await setMode('altdbl');
 
+  // 12a. Pronunciation buttons: US + UK exist, click → offscreen audio actually plays to the end
+  await reset(); await dbl(true); await waitResult();
+  const btns = await page.evaluate(() => [...document.querySelector('envi-dict-popup').shadowRoot.querySelectorAll('.card > .head .speak .audio')].map(b => b.textContent.trim()));
+  check('popup has 🔊 US and 🔊 UK buttons', btns.join(',') === '🔊 US,🔊 UK', btns.join(','));
+  for (const accent of ['en-US', 'en-GB']) {
+    const res = await page.evaluate(a => new Promise(r => {
+      const b = document.querySelector('envi-dict-popup').shadowRoot.querySelector(`.card > .head .speak .audio[data-accent="${a}"]`);
+      b.click();
+      const t0 = Date.now();
+      const iv = setInterval(() => {
+        if (!b.classList.contains('playing')) { clearInterval(iv); r({ failed: b.classList.contains('failed'), ms: Date.now() - t0 }); }
+        else if (Date.now() - t0 > 10000) { clearInterval(iv); r({ failed: true, ms: -1 }); }
+      }, 50);
+    }), accent);
+    check(`🔊 ${accent} plays audio to the end`, !res.failed && res.ms > 150, `(${res.ms}ms)`);
+  }
+
+  // 12b. Inflected word: "paid" shows base form "pay" with its meanings
+  await ui.fill('#q', 'paid'); await ui.press('#q', 'Enter');
+  await ui.waitForFunction(() => /pay/.test(document.querySelector('#out').innerText), null, { timeout: 15000 }).catch(() => {});
+  const paid = await ui.innerText('#out');
+  check('toolbar search "paid" → shows base "pay" + its meanings', /pay/.test(paid) && /thanh toán|tiền lương|trả tiền/.test(paid), '→ ' + paid.replace(/\n/g, ' | ').slice(0, 140));
+
   // 12. Toolbar popup search box
   await ui.fill('#q', 'beautiful'); await ui.press('#q', 'Enter');
   await ui.waitForFunction(() => !/Đang tra/.test(document.querySelector('#out').innerText) && document.querySelector('#out').innerText.length > 0, null, { timeout: 10000 });
