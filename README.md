@@ -22,7 +22,7 @@ Trigger modes (toolbar popup): **Alt + double-click** (default), plain double-cl
 No API keys required.
 
 - Vietnamese meanings, English definitions, pronunciation audio: Google Translate public endpoints (`translate.googleapis.com`, unofficial — may be rate-limited)
-- IPA: bundled `ipa.json`, generated from the [CMU Pronouncing Dictionary](https://github.com/cmusphinx/cmudict) (BSD license) by `tools/build_ipa.py`. US pronunciation; works offline.
+- IPA: bundled `ipa.json`, generated from the [CMU Pronouncing Dictionary](https://github.com/cmusphinx/cmudict) (BSD license, see `LICENSE-cmudict.txt`) by `tools/build_ipa.py`. US pronunciation; works offline.
 
 ## Tests
 
