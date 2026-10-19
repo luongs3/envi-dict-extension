@@ -117,17 +117,41 @@
     card.innerHTML = `<div class="head"><span class="word">${esc(word)}</span></div><div class="loading">Đang tra…</div>`;
     settle();
 
-    chrome.runtime.sendMessage({ type: 'lookup', word }, res => {
+    const fail = msg => {
       if (word !== lastWord || !host) return;
-      if (chrome.runtime.lastError || !res || !res.ok) {
-        card.innerHTML = `<div class="head"><span class="word">${esc(word)}</span></div>
-          <div class="err">${esc(res?.error || 'Lỗi tra từ')}</div>`;
-        settle();
-        return;
-      }
-      render(card, res.data);
+      card.innerHTML = `<div class="head"><span class="word">${esc(word)}</span></div>
+        <div class="err">${esc(msg)}</div>`;
       settle();
-    });
+    };
+    // The reply can be lost: the service worker gets killed mid-request, or the extension was
+    // reloaded and this tab's content script is orphaned (sendMessage throws). Retry once, then show an error.
+    const send = (attempt) => {
+      let done = false;
+      const timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        attempt < 1 ? send(attempt + 1) : fail('Hết thời gian tra từ, thử lại nhé');
+      }, 8000);
+      try {
+        chrome.runtime.sendMessage({ type: 'lookup', word }, res => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          if (word !== lastWord || !host) return;
+          if (chrome.runtime.lastError || !res || !res.ok) {
+            if (attempt < 1 && chrome.runtime.lastError) return send(attempt + 1);
+            return fail(res?.error || 'Lỗi tra từ');
+          }
+          render(card, res.data);
+          settle();
+        });
+      } catch {
+        done = true;
+        clearTimeout(timer);
+        fail('Tiện ích vừa được cập nhật — tải lại trang (F5) để tra tiếp');
+      }
+    };
+    send(0);
   }
 
   function render(card, d) {
